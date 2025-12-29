@@ -151,33 +151,42 @@ int main() {
     printf("True Variance = %.6f\n", variance);
     printf("True stddev = %.6f\n", sqrt(variance));
 
-    // device vars
-    float * d_data;
-    Stats * d_stats;
-
-    cudaMalloc(&d_data, N*sizeof(float));
-    cudaMalloc(&d_stats, sizeof(Stats));
-
-    cudaMemcpy(d_data, h_data.data(), N*sizeof(float), cudaMemcpyHostToDevice);
-    cudaMemset(d_stats, 0, sizeof(Stats));
-
-    size_t smem_size = 2 * BLOCK_SIZE * sizeof(double);
-
-    cudaEvent_t start, stop;
-    cudaEventCreate(&start);
-    cudaEventCreate(&stop);
-
-    cudaEventRecord(start);
-    variance_kernel_parallel<<<NUM_BLOCKS, BLOCK_SIZE, smem_size>>>(d_data, d_stats, N);
-    cudaEventRecord(stop);
-    cudaEventSynchronize(stop);
-
-    float ms;
-    cudaEventElapsedTime(&ms, start, stop);
-
+    const int NUM_TRIALS = 100;
     Stats h_stats;
-    cudaMemcpy(&h_stats, d_stats, sizeof(Stats), cudaMemcpyDeviceToHost);
+    double avg_ms = 0;
+    
+    for (int i = 0; i < NUM_TRIALS; i++) {
+        float * d_data;
+        Stats * d_stats;
+    
+        cudaMalloc(&d_data, N*sizeof(float));
+        cudaMalloc(&d_stats, sizeof(Stats));
+    
+        cudaMemcpy(d_data, h_data.data(), N*sizeof(float), cudaMemcpyHostToDevice);
+        cudaMemset(d_stats, 0, sizeof(Stats));
+    
+        size_t smem_size = 2 * BLOCK_SIZE * sizeof(double);
+    
 
+        cudaEvent_t start, stop;
+        cudaEventCreate(&start);
+        cudaEventCreate(&stop);
+    
+        cudaEventRecord(start);
+        variance_kernel_parallel<<<NUM_BLOCKS, BLOCK_SIZE, smem_size>>>(d_data, d_stats, N);
+        cudaEventRecord(stop);
+        cudaEventSynchronize(stop);
+    
+        float ms;
+        cudaEventElapsedTime(&ms, start, stop);
+        avg_ms += ms;
+    
+        cudaMemcpy(&h_stats, d_stats, sizeof(Stats), cudaMemcpyDeviceToHost);
+        
+        cudaFree(d_data);
+        cudaFree(d_stats);
+    }
+    avg_ms /= NUM_TRIALS;
     double gpu_mean = h_stats.sum / N;
     double gpu_var = (h_stats.sum_sq / N) - (gpu_mean * gpu_mean);
     
@@ -186,12 +195,11 @@ int main() {
     printf("Variance: %.6f (error: %e)\n", gpu_var, fabs(gpu_var - variance));
     printf("Stddev: %.6f\n\n", sqrt(gpu_var));
     
+    
     double bytes = N * sizeof(float);
-    double bandwidth = bytes / (ms * 1e6);
-    printf("Time: %.3f ms\n", ms);
+    double bandwidth = bytes / (avg_ms * 1e6);
+    printf("Time: %.3f ms\n", avg_ms);
     printf("Bandwidth: %.1f GB/s\n", bandwidth);
     
-    cudaFree(d_data);
-    cudaFree(d_stats);
 
 }
